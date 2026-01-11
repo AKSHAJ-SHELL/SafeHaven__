@@ -100,6 +100,7 @@ class InferenceWorker {
       await this.subscriber.subscribe('camera/+/frame', (topic: string, message: Buffer) => {
         this.handleFrameMessage(topic, message);
       });
+      console.log('Subscribed to topic: camera/+/frame')
       
       // Subscribe to configuration updates
       await this.subscriber.subscribe('config/+/update', (topic: string, message: Buffer) => {
@@ -184,6 +185,8 @@ class InferenceWorker {
       if (queue.length > 5) {
         queue.shift();
       }
+
+      console.log(`Queued frame for camera ${cameraId}. Queue size: ${queue.length}`)
       
     } catch (error) {
       console.error('Error handling frame message:', error);
@@ -225,9 +228,11 @@ class InferenceWorker {
       
       // Process the most recent frame
       const { frame, timestamp } = queue[queue.length - 1];
+      console.log(`Processing frame for camera ${cameraId} at ${timestamp.toISOString()}`)
       
       try {
         await this.processor.processFrame(cameraId, frame, timestamp);
+        console.log(`Processed frame for camera ${cameraId}`)
       } catch (error) {
         console.error(`Error processing frame for camera ${cameraId}:`, error);
       }

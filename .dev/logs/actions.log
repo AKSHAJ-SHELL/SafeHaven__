@@ -1,0 +1,25 @@
+
+> @security-system/actions-service@1.0.0 dev
+> ts-node src/index.ts
+
+GPIO not available, using simulation mode
+Starting actions service worker...
+Error opening database: [Error: SQLITE_CANTOPEN: unable to open database file] {
+  errno: 14,
+  code: 'SQLITE_CANTOPEN'
+}
+Failed to start actions service worker: [Error: SQLITE_CANTOPEN: unable to open database file] {
+  errno: 14,
+  code: 'SQLITE_CANTOPEN'
+}
+Failed to start actions service worker: [Error: SQLITE_CANTOPEN: unable to open database file] {
+  errno: 14,
+  code: 'SQLITE_CANTOPEN'
+}
+npm error Lifecycle script `dev` failed with error:
+npm error code 1
+npm error path /Users/bytedance/personal/hackathon/security-system/SafeHaven/workers/actions-service
+npm error workspace @security-system/actions-service@1.0.0
+npm error location /Users/bytedance/personal/hackathon/security-system/SafeHaven/workers/actions-service
+npm error command failed
+npm error command sh -c ts-node src/index.ts

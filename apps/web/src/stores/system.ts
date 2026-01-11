@@ -20,6 +20,9 @@ interface SystemState {
   isConnected: boolean
   lastUpdate: Date | null
   mqttConnected: boolean
+  frames: Record<string, string>
+  logs: Array<{ ts: number; source: 'mqtt' | 'api'; topic?: string; message: string }>
+  analyses: Array<{ ts: number; cameraId: string; type: string; severity: 'high' | 'medium' | 'low'; confidence?: number; tags: string[] }>
   
   // Actions
   setCameras: (cameras: Camera[]) => void
@@ -31,6 +34,9 @@ interface SystemState {
   setSystemStatus: (status: SystemState['systemStatus']) => void
   setConnectionStatus: (connected: boolean) => void
   setMQTTConnected: (connected: boolean) => void
+  setCameraFrame: (cameraId: string, frame: string) => void
+  addLog: (entry: { ts: number; source: 'mqtt' | 'api'; topic?: string; message: string }) => void
+  addAnalysis: (entry: { ts: number; cameraId: string; type: string; severity: 'high' | 'medium' | 'low'; confidence?: number; tags: string[] }) => void
   addEvent: (event: Event) => void
   addDetection: (detection: DetectionEvent) => void
   addIncident: (incident: Incident) => void
@@ -40,6 +46,7 @@ interface SystemState {
   fetchCameras: () => Promise<void>
   fetchEvents: () => Promise<void>
   fetchSystemStatus: () => Promise<void>
+  fetchIncidents: () => Promise<void>
 }
 
 export const useSystemStore = create<SystemState>((set, get) => ({
@@ -59,6 +66,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   isConnected: false,
   lastUpdate: null,
   mqttConnected: false,
+  frames: {},
+  logs: [],
+  analyses: [],
 
   setCameras: (cameras) => set({ cameras, lastUpdate: new Date() }),
   setEvents: (events) => set({ events, lastUpdate: new Date() }),
@@ -69,6 +79,12 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   setSystemStatus: (systemStatus) => set({ systemStatus, lastUpdate: new Date() }),
   setConnectionStatus: (isConnected) => set({ isConnected, lastUpdate: new Date() }),
   setMQTTConnected: (mqttConnected) => set({ mqttConnected, lastUpdate: new Date() }),
+  setCameraFrame: (cameraId, frame) => set((state) => ({
+    frames: { ...state.frames, [cameraId]: frame },
+    lastUpdate: new Date(),
+  })),
+  addLog: (entry) => set((state) => ({ logs: [entry, ...state.logs].slice(0, 200), lastUpdate: new Date() })),
+  addAnalysis: (entry) => set((state) => ({ analyses: [entry, ...state.analyses].slice(0, 200), lastUpdate: new Date() })),
   
   addEvent: (event) => set((state) => ({ 
     events: [event, ...state.events].slice(0, 1000), // Keep last 1000 events
@@ -110,21 +126,33 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   initializeMQTT: async () => {
     try {
       const mqtt = getMQTTService();
+      if (get().mqttConnected || mqtt.getConnectionStatus()) {
+        return;
+      }
       
       // Set up MQTT event listeners
       mqtt.on('connected', () => {
         set({ mqttConnected: true });
-        console.log('MQTT connected in store');
+        get().addLog({ ts: Date.now(), source: 'mqtt', message: 'MQTT connected' });
       });
 
       mqtt.on('disconnected', () => {
         set({ mqttConnected: false });
-        console.log('MQTT disconnected in store');
+        get().addLog({ ts: Date.now(), source: 'mqtt', message: 'MQTT disconnected' });
       });
 
       mqtt.on('event:new', (event: Event) => {
         get().addEvent(event);
-        console.log('New event received via MQTT:', event);
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/events/new', message: JSON.stringify(event) });
+        const severityMap = (s: any) => (s === 'critical' ? 'high' : s === 'warn' ? 'medium' : 'low');
+        const type = (event as any).detectionType || (event as any).eventType || 'event';
+        const confidence = (event as any).confidence;
+        const tags: string[] = [];
+        if ((event as any).zones) tags.push(...((event as any).zones as string[]));
+        if ((event as any).metadata?.detectionTypes) tags.push(...(event as any).metadata.detectionTypes);
+        if ((event as any).cameraId) tags.push(`camera:${(event as any).cameraId}`);
+        if ((event as any).tags) tags.push(...((event as any).tags as string[]));
+        get().addAnalysis({ ts: Date.now(), cameraId: (event as any).cameraId || 'unknown', type, severity: severityMap((event as any).severity), confidence, tags });
       });
 
       mqtt.on('event:update', (event: Event) => {
@@ -136,7 +164,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
       mqtt.on('incident:new', (incident: Incident) => {
         get().addIncident(incident);
-        console.log('New incident received via MQTT:', incident);
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/incidents/new', message: JSON.stringify(incident) });
       });
 
       mqtt.on('incident:update', (incident: Incident) => {
@@ -148,12 +176,12 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
       mqtt.on('camera:status', (payload: { cameraId: string; status: 'online' | 'offline'; timestamp: number }) => {
         get().updateCameraStatus(payload.cameraId, payload.status);
-        console.log('Camera status updated via MQTT:', payload);
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/cameras/status', message: JSON.stringify(payload) });
       });
 
       mqtt.on('camera:frame', (payload: { cameraId: string; frame: string; timestamp: number }) => {
-        // Handle live frame updates - could be used for real-time preview
-        console.log('Camera frame received via MQTT:', payload.cameraId);
+        get().setCameraFrame(payload.cameraId, payload.frame)
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/cameras/frames', message: payload.cameraId })
       });
 
       mqtt.on('rules:change', () => {
@@ -236,6 +264,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       const res = await fetch('/health')
       const health = (await res.json()) as { status: string }
       const state = get()
+      get().addLog({ ts: Date.now(), source: 'api', message: 'Fetched /health' })
       set({
         systemStatus: {
           cameras: state.cameras.length,
@@ -248,6 +277,21 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       })
     } catch (e) {
       console.error('fetchSystemStatus error', e)
+    }
+  },
+
+  fetchIncidents: async () => {
+    try {
+      const token = useAuthStore.getState().token
+      const res = await fetch('/api/events/incidents', {
+        headers: { Authorization: `Bearer ${token || ''}` },
+      })
+      if (!res.ok) throw new Error('Failed to fetch incidents')
+      const incidents: any[] = await res.json()
+      set({ incidents: incidents as any, lastUpdate: new Date() })
+      get().addLog({ ts: Date.now(), source: 'api', message: 'Fetched incidents' })
+    } catch (e) {
+      console.error('fetchIncidents error', e)
     }
   },
 }))

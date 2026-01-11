@@ -36,6 +36,26 @@ export class InferenceProcessor {
     timestamp: Date
   ): Promise<void> {
     try {
+      if (!this.detector.isInitialized()) {
+        try {
+          const stats = await (await import('sharp')).default(frameData).stats();
+          const mean = (stats.channels?.[0]?.mean || 0 + stats.channels?.[1]?.mean || 0 + stats.channels?.[2]?.mean || 0) / 3;
+          const brightnessTag = mean < 40 ? 'frame_brightness:dark' : mean > 200 ? 'frame_brightness:bright' : 'frame_brightness:medium';
+          const analysisEvent = {
+            cameraId,
+            timestamp: timestamp.toISOString(),
+            detectionType: 'frame_analysis',
+            confidence: undefined,
+            bbox: undefined,
+            zones: [],
+            metadata: { meanBrightness: mean },
+            severity: 'info',
+            tags: [brightnessTag],
+          };
+          this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+        } catch {}
+        return;
+      }
       // Get camera configuration
       const camera: Camera | null = null;
 
@@ -60,7 +80,7 @@ export class InferenceProcessor {
         const detectionEvent: any = {
           cameraId,
           timestamp: timestamp.toISOString(),
-          detectionType: detection.class,
+          detectionType: detection.label || detection.class,
           confidence: detection.confidence,
           bbox,
           zones: inZones.map((z: any) => z.name),
@@ -86,6 +106,27 @@ export class InferenceProcessor {
         const motionEvent = this.createMotionEvent(cameraId, detections, timestamp);
         if (motionEvent) {
           this.publisher.publishMotionEvent(cameraId, motionEvent);
+        }
+      } else {
+        // Publish a lightweight analysis when no detections
+        try {
+          const stats = await (await import('sharp')).default(frameData).stats();
+          const mean = (stats.channels?.[0]?.mean || 0 + stats.channels?.[1]?.mean || 0 + stats.channels?.[2]?.mean || 0) / 3;
+          const brightnessTag = mean < 40 ? 'frame_brightness:dark' : mean > 200 ? 'frame_brightness:bright' : 'frame_brightness:medium';
+          const analysisEvent = {
+            cameraId,
+            timestamp: timestamp.toISOString(),
+            detectionType: 'frame_analysis',
+            confidence: undefined,
+            bbox: undefined,
+            zones: [],
+            metadata: { meanBrightness: mean },
+            severity: mean < 40 ? 'info' : 'info',
+            tags: [brightnessTag],
+          };
+          this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+        } catch (e) {
+          // ignore analysis failure
         }
       }
 

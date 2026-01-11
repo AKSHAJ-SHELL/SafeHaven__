@@ -11,6 +11,7 @@ export interface MQTTMessage {
 export class MQTTService extends EventEmitter {
   private client: MqttClient | null = null;
   private isConnected = false;
+  private isConnecting = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
@@ -23,6 +24,10 @@ export class MQTTService extends EventEmitter {
   }
 
   async connect(): Promise<void> {
+    if (this.isConnected || this.isConnecting) {
+      return Promise.resolve();
+    }
+    this.isConnecting = true;
     return new Promise((resolve, reject) => {
       try {
         this.client = mqtt.connect(this.brokerUrl, {
@@ -36,6 +41,7 @@ export class MQTTService extends EventEmitter {
         this.client.on('connect', () => {
           console.log('MQTT connected');
           this.isConnected = true;
+          this.isConnecting = false;
           this.reconnectAttempts = 0;
           this.subscribeToTopics();
           this.emit('connected');
@@ -45,6 +51,7 @@ export class MQTTService extends EventEmitter {
         this.client.on('error', (error) => {
           console.error('MQTT error:', error);
           this.emit('error', error);
+          this.isConnecting = false;
           if (!this.isConnected) {
             reject(error);
           }
@@ -53,6 +60,7 @@ export class MQTTService extends EventEmitter {
         this.client.on('disconnect', () => {
           console.log('MQTT disconnected');
           this.isConnected = false;
+          this.isConnecting = false;
           this.emit('disconnected');
         });
 

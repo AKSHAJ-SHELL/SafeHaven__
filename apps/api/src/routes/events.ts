@@ -12,8 +12,8 @@ const eventQuerySchema = z.object({
   severity: z.enum(['info', 'warn', 'critical']).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
-  limit: z.number().int().min(1).max(1000).optional().default(100),
-  offset: z.number().int().min(0).optional().default(0)
+  limit: z.coerce.number().int().min(1).max(1000).optional().default(100),
+  offset: z.coerce.number().int().min(0).optional().default(0)
 });
 
 // Get events with filters
