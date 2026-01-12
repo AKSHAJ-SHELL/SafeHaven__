@@ -40,9 +40,12 @@ export const Dashboard: React.FC = () => {
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
-      case 'high': return 'bg-red-100 text-red-800 border-red-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'low': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'high':
+      case 'critical': return 'bg-red-100 text-red-800 border-red-200';
+      case 'medium':
+      case 'warn': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'low':
+      case 'info': return 'bg-blue-100 text-blue-800 border-blue-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -175,17 +178,18 @@ export const Dashboard: React.FC = () => {
             <div className="p-6">
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {(recentEvents as any[]).map((event: any) => (
-                  <div key={event.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                  <div key={event.id ?? `${event.cameraId || 'unknown'}-${event.timestamp || Math.random()}`}
+                       className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                     <div className={`w-2 h-2 rounded-full ${
                       event.severity === 'high' ? 'bg-red-500' :
                       event.severity === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'
                     }`}></div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
-                        {event.type.replace('_', ' ').toUpperCase()}
+                        {((event.type || event.detectionType || event.eventType || 'event') as string).replace('_', ' ').toUpperCase()}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {event.cameraName} • {new Date(event.timestamp).toLocaleString()}
+                        {(event.cameraName || event.cameraId || 'Unknown')} • {new Date(event.timestamp).toLocaleString()}
                       </p>
                     </div>
                     <span className={`px-2 py-1 text-xs font-medium rounded-full border ${
@@ -226,10 +230,14 @@ export const Dashboard: React.FC = () => {
               </button>
             </div>
             <div className="p-6">
-              <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
-                <VideoCameraIcon className="h-24 w-24 text-gray-400" />
-                <p className="text-gray-400 ml-4">Live stream coming soon</p>
-              </div>
+              {frames[selectedCamera] ? (
+                <img src={frames[selectedCamera]} className="w-full rounded aspect-video object-cover" />
+              ) : (
+                <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
+                  <VideoCameraIcon className="h-24 w-24 text-gray-400" />
+                  <p className="text-gray-400 ml-4">No live frame yet</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

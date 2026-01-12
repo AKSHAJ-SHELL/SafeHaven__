@@ -13,6 +13,12 @@ const WebcamPreview: React.FC = () => {
   const start = async () => {
     try {
       setError(null)
+      try {
+        const mqtt = getMQTTService()
+        await mqtt.connect()
+      } catch (e: any) {
+        console.error('MQTT connect failed', e)
+      }
       const media = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
       if (videoRef.current) {
         videoRef.current.srcObject = media

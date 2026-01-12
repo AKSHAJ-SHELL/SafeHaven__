@@ -18,7 +18,18 @@ export class MQTTService extends EventEmitter {
 
   constructor(
     private brokerUrl: string = 'ws://localhost:9011',
-    private clientId: string = `web-client-${Date.now()}`
+    private clientId: string = (() => {
+      try {
+        const key = 'mqttClientId'
+        const existing = localStorage.getItem(key)
+        if (existing) return existing
+        const id = `web-client-${Math.random().toString(36).slice(2)}-${Date.now()}`
+        localStorage.setItem(key, id)
+        return id
+      } catch {
+        return `web-client-${Date.now()}`
+      }
+    })()
   ) {
     super();
   }
@@ -33,8 +44,9 @@ export class MQTTService extends EventEmitter {
         this.client = mqtt.connect(this.brokerUrl, {
           clientId: this.clientId,
           clean: true,
-          connectTimeout: 4000,
-          reconnectPeriod: 1000,
+          keepalive: 180,
+          connectTimeout: 8000,
+          reconnectPeriod: 2000,
           protocolVersion: 5,
         });
 
@@ -116,6 +128,15 @@ export class MQTTService extends EventEmitter {
         }
       });
     });
+
+    // Subscribe to raw camera frames published by the browser preview
+    this.client?.subscribe('camera/+/frame', { qos: 1 }, (err) => {
+      if (err) {
+        console.error('Failed to subscribe to camera/+/frame:', err)
+      } else {
+        console.log('Subscribed to camera/+/frame')
+      }
+    })
   }
 
   private handleMessage(topic: string, message: Buffer): void {
@@ -162,6 +183,14 @@ export class MQTTService extends EventEmitter {
         case 'security/alerts/notification':
           this.emit('alert:notification', payload);
           break;
+      }
+
+      // Wildcard topic handling for camera frames
+      const m = topic.match(/^camera\/([^/]+)\/frame$/)
+      if (m) {
+        const cameraId = m[1]
+        const frameBase64 = (payload && payload.frame) ? `data:image/jpeg;base64,${payload.frame}` : undefined
+        this.emit('camera:frame', { cameraId, frame: frameBase64, timestamp: payload?.timestamp || Date.now() })
       }
     } catch (error) {
       console.error('Failed to handle MQTT message:', error);

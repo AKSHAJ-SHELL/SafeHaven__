@@ -1,5 +1,6 @@
 import React from 'react'
 import { useSystemStore } from '@/stores/system'
+import { getMQTTService } from '@/services/mqtt'
 
 const CommAnalysisPanel: React.FC = () => {
   const { analyses } = useSystemStore() as any
@@ -7,7 +8,29 @@ const CommAnalysisPanel: React.FC = () => {
     <div className="bg-white rounded-lg shadow p-4 mt-6">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-lg font-medium text-gray-900">Model Insights</h3>
-        <span className="text-xs text-gray-500">Latest ({analyses.length})</span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-gray-500">Latest ({analyses.length})</span>
+          <button
+            onClick={() => {
+              try {
+                const mqtt = getMQTTService()
+                mqtt.publish('security/events/new', {
+                  cameraId: 'webcam-local',
+                  timestamp: new Date().toISOString(),
+                  detectionType: 'person',
+                  confidence: 0.9,
+                  severity: 'critical',
+                  bbox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+                  zones: [],
+                  metadata: { test: true },
+                })
+              } catch {}
+            }}
+            className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+          >
+            Send test event
+          </button>
+        </div>
       </div>
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {analyses.slice(0, 30).map((a: any, idx: number) => (

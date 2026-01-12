@@ -156,7 +156,16 @@ main() {
         case "$s" in
           mqtt) start_mqtt;;
           api) start_service api "$ROOT_DIR" "npm run dev --workspace=apps/api";;
-          inference) bash "$ROOT_DIR/workers/inference/scripts/fetch-models.sh" >/dev/null 2>&1 || true; start_service inference "$ROOT_DIR" "HEALTH_PORT=7018 npm run dev --workspace=workers/inference";;
+          inference) \
+            bash "$ROOT_DIR/workers/inference/scripts/fetch-models.sh" || { log "Model download failed"; exit 1; }; \
+            if [[ -f "$ROOT_DIR/workers/inference/models/local-paths.env" ]]; then \
+              log "Using local model paths overrides"; \
+              set -a; source "$ROOT_DIR/workers/inference/models/local-paths.env"; set +a; \
+            fi; \
+            if [[ -z "${EMBEDDING_MODEL_PATH:-}" ]]; then \
+              [[ -f "$ROOT_DIR/workers/inference/models/mobilenetv2.onnx" ]] || { log "Embedding model missing after fetch"; exit 1; }; \
+            fi; \
+            start_service inference "$ROOT_DIR" "HEALTH_PORT=7018 DETECTOR_MODEL_PATH='${DETECTOR_MODEL_PATH:-}' EMBEDDING_MODEL_PATH='${EMBEDDING_MODEL_PATH:-}' npm run dev --workspace=workers/inference";;
           actions) start_service actions "$ROOT_DIR" "npm run dev --workspace=workers/actions-service";;
           web) start_service web "$ROOT_DIR" "npm run dev --workspace=apps/web";;
           all) start_all;;

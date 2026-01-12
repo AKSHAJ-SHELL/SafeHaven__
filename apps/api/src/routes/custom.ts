@@ -93,6 +93,40 @@ router.post('/models', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+// Update custom model
+router.put('/models/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const db = getDatabase();
+    const { name, description, type, status } = req.body;
+    await db.run(
+      'UPDATE models SET name = ?, type = ?, status = ?, meta_json = ? WHERE id = ?',
+      [name, type, status || 'building', JSON.stringify({ description }), id]
+    );
+    const model = await db.get<Model>('SELECT * FROM models WHERE id = ?', [id]);
+    if (!model) return res.status(404).json({ error: 'Model not found.' });
+    res.json(model);
+  } catch (error) {
+    console.error('Update model error:', error);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// Delete custom model
+router.delete('/models/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const db = getDatabase();
+    await db.run('DELETE FROM model_classes WHERE model_id = ?', [id]);
+    await db.run('DELETE FROM training_samples WHERE model_id = ?', [id]);
+    const result = await db.run('DELETE FROM models WHERE id = ?', [id]);
+    res.json({ deleted: result.changes > 0 });
+  } catch (error) {
+    console.error('Delete model error:', error);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 // Get model by ID
 router.get('/models/:id', authenticate, async (req: AuthRequest, res) => {
   try {

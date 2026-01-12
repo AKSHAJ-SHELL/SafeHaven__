@@ -41,18 +41,38 @@ export class InferenceProcessor {
           const stats = await (await import('sharp')).default(frameData).stats();
           const mean = (stats.channels?.[0]?.mean || 0 + stats.channels?.[1]?.mean || 0 + stats.channels?.[2]?.mean || 0) / 3;
           const brightnessTag = mean < 40 ? 'frame_brightness:dark' : mean > 200 ? 'frame_brightness:bright' : 'frame_brightness:medium';
-          const analysisEvent = {
-            cameraId,
-            timestamp: timestamp.toISOString(),
-            detectionType: 'frame_analysis',
-            confidence: undefined,
-            bbox: undefined,
-            zones: [],
-            metadata: { meanBrightness: mean },
-            severity: 'info',
-            tags: [brightnessTag],
-          };
-          this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+          let tags = [brightnessTag];
+          if (this.embeddingModel.isInitialized()) {
+            try {
+              const cls = await this.embeddingModel.classify(frameData)
+              tags.push(`imagenet_class:${cls.index}`)
+              const analysisEvent = {
+                cameraId,
+                timestamp: timestamp.toISOString(),
+                detectionType: 'classification',
+                confidence: cls.confidence,
+                bbox: undefined,
+                zones: [],
+                metadata: { meanBrightness: mean },
+                severity: cls.confidence > 0.8 ? 'info' : 'info',
+                tags,
+              };
+              this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+            } catch {}
+          } else {
+            const analysisEvent = {
+              cameraId,
+              timestamp: timestamp.toISOString(),
+              detectionType: 'frame_analysis',
+              confidence: undefined,
+              bbox: undefined,
+              zones: [],
+              metadata: { meanBrightness: mean },
+              severity: 'info',
+              tags,
+            };
+            this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+          }
         } catch {}
         return;
       }

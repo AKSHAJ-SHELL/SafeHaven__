@@ -75,16 +75,16 @@ class InferenceWorker {
       // Initialize models
       if (fs.existsSync(CONFIG.models.detector)) {
         await this.detector.initialize();
-        console.log('Object detector initialized');
+        console.log(`Object detector initialized at ${CONFIG.models.detector}`);
       } else {
-        console.warn('Detector model not found, skipping initialization');
+        console.warn(`Detector model not found at ${CONFIG.models.detector}, skipping initialization`);
       }
       
       if (fs.existsSync(CONFIG.models.embedding)) {
         await this.embeddingModel.initialize();
-        console.log('Embedding model initialized');
+        console.log(`Embedding model initialized at ${CONFIG.models.embedding}`);
       } else {
-        console.warn('Embedding model not found, skipping initialization');
+        console.warn(`Embedding model not found at ${CONFIG.models.embedding}, skipping initialization`);
       }
       
       // Initialize processor

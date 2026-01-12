@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Camera, DetectionPayload as DetectionEvent, Event, Rule, CustomModelConfig as CustomModel, Incident } from '@security-system/shared'
+import { Camera, DetectionPayload as DetectionEvent, Event, Rule, Incident } from '@security-system/shared'
 import { getMQTTService } from '../services/mqtt'
 import { useAuthStore } from './auth'
 
@@ -8,7 +8,7 @@ interface SystemState {
   events: Event[]
   detections: DetectionEvent[]
   rules: Rule[]
-  customModels: CustomModel[]
+  customModels: any[]
   incidents: Incident[]
   systemStatus: {
     cameras: number
@@ -29,7 +29,7 @@ interface SystemState {
   setEvents: (events: Event[]) => void
   setDetections: (detections: DetectionEvent[]) => void
   setRules: (rules: Rule[]) => void
-  setCustomModels: (models: CustomModel[]) => void
+  setCustomModels: (models: any[]) => void
   setIncidents: (incidents: Incident[]) => void
   setSystemStatus: (status: SystemState['systemStatus']) => void
   setConnectionStatus: (connected: boolean) => void
@@ -47,6 +47,10 @@ interface SystemState {
   fetchEvents: () => Promise<void>
   fetchSystemStatus: () => Promise<void>
   fetchIncidents: () => Promise<void>
+  fetchCustomModels: () => Promise<void>
+  createCustomModel: (data: any) => Promise<void>
+  updateCustomModel: (id: string, data: any) => Promise<void>
+  deleteCustomModel: (id: string) => Promise<void>
 }
 
 export const useSystemStore = create<SystemState>((set, get) => ({
@@ -142,17 +146,28 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       });
 
       mqtt.on('event:new', (event: Event) => {
-        get().addEvent(event);
-        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/events/new', message: JSON.stringify(event) });
         const severityMap = (s: any) => (s === 'critical' ? 'high' : s === 'warn' ? 'medium' : 'low');
         const type = (event as any).detectionType || (event as any).eventType || 'event';
         const confidence = (event as any).confidence;
+        const ts = (event as any).timestamp || Date.now();
+        const cameraId = (event as any).cameraId || 'unknown';
+        const id = (event as any).id || `${cameraId}-${ts}-${type}-${Math.random().toString(36).slice(2,8)}`;
+        const mapped: any = {
+          id,
+          type,
+          severity: severityMap((event as any).severity),
+          cameraName: cameraId,
+          timestamp: ts,
+          payload_json: JSON.stringify(event),
+        };
+        get().addEvent(mapped);
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/events/new', message: JSON.stringify(event) });
         const tags: string[] = [];
         if ((event as any).zones) tags.push(...((event as any).zones as string[]));
         if ((event as any).metadata?.detectionTypes) tags.push(...(event as any).metadata.detectionTypes);
         if ((event as any).cameraId) tags.push(`camera:${(event as any).cameraId}`);
         if ((event as any).tags) tags.push(...((event as any).tags as string[]));
-        get().addAnalysis({ ts: Date.now(), cameraId: (event as any).cameraId || 'unknown', type, severity: severityMap((event as any).severity), confidence, tags });
+        get().addAnalysis({ ts: Date.now(), cameraId, type, severity: severityMap((event as any).severity), confidence, tags });
       });
 
       mqtt.on('event:update', (event: Event) => {
@@ -180,9 +195,34 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       });
 
       mqtt.on('camera:frame', (payload: { cameraId: string; frame: string; timestamp: number }) => {
-        get().setCameraFrame(payload.cameraId, payload.frame)
-        get().addLog({ ts: Date.now(), source: 'mqtt', topic: 'security/cameras/frames', message: payload.cameraId })
+        const dataUrl = payload.frame?.startsWith('data:') ? payload.frame : (payload.frame ? `data:image/jpeg;base64,${payload.frame}` : '')
+        if (dataUrl) {
+          get().setCameraFrame(payload.cameraId, dataUrl)
+        }
+        const state = get()
+        const exists = state.cameras.some((c) => (c as any).id === payload.cameraId)
+        if (!exists) {
+          const newCam: any = {
+            id: payload.cameraId,
+            name: payload.cameraId === 'webcam-local' ? 'Mac Webcam' : `Camera ${payload.cameraId}`,
+            type: 'usb',
+            location: 'Local',
+            enabled: true,
+            fps: 15,
+            resolution: '640x480',
+            created_at: new Date(),
+            status: 'online',
+          }
+          set({ cameras: [newCam, ...state.cameras], lastUpdate: new Date() })
+        } else {
+          get().updateCameraStatus(payload.cameraId, 'online')
+        }
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: topicNameForFrame(payload.cameraId), message: payload.cameraId })
       });
+
+      function topicNameForFrame(cameraId: string) {
+        return cameraId ? `camera/${cameraId}/frame` : 'security/cameras/frames'
+      }
 
       mqtt.on('rules:change', () => {
         // Trigger rules refresh
@@ -292,6 +332,83 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       get().addLog({ ts: Date.now(), source: 'api', message: 'Fetched incidents' })
     } catch (e) {
       console.error('fetchIncidents error', e)
+    }
+  },
+
+  fetchCustomModels: async () => {
+    try {
+      const token = useAuthStore.getState().token
+      const res = await fetch('/api/custom/models', {
+        headers: { Authorization: `Bearer ${token || ''}` },
+      })
+      if (!res.ok) throw new Error('Failed to fetch custom models')
+      const models: any[] = await res.json()
+      const mapped = models.map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        description: m.meta_json ? (JSON.parse(m.meta_json).description || '') : '',
+        type: m.type === 'custom_object' ? 'object_detection' : m.type === 'custom_gesture' ? 'gesture_recognition' : m.type === 'face_gallery' ? 'person_recognition' : 'custom_classification',
+        classes: [],
+        status: m.status === 'building' ? 'training' : m.status === 'ready' ? 'ready' : m.status === 'error' ? 'failed' : 'draft',
+      }))
+      set({ customModels: mapped, lastUpdate: new Date() })
+    } catch (e) {
+      console.error('fetchCustomModels error', e)
+    }
+  },
+
+  createCustomModel: async (data) => {
+    try {
+      const token = useAuthStore.getState().token
+      const payload = {
+        name: data.name,
+        type: data.type === 'object_detection' ? 'custom_object' : data.type === 'gesture_recognition' ? 'custom_gesture' : data.type === 'person_recognition' ? 'face_gallery' : 'custom_object',
+        labels: Array.isArray(data.classes) && data.classes.length ? data.classes : ['custom'],
+      }
+      const res = await fetch('/api/custom/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('Failed to create custom model')
+      await useSystemStore.getState().fetchCustomModels()
+    } catch (e) {
+      console.error('createCustomModel error', e)
+    }
+  },
+
+  updateCustomModel: async (id, data) => {
+    try {
+      const token = useAuthStore.getState().token
+      const payload = {
+        name: data.name,
+        description: data.description,
+        type: data.type === 'object_detection' ? 'custom_object' : data.type === 'gesture_recognition' ? 'custom_gesture' : data.type === 'person_recognition' ? 'face_gallery' : 'custom_object',
+        status: data.status === 'training' ? 'building' : data.status === 'ready' ? 'ready' : data.status === 'failed' ? 'error' : 'building',
+      }
+      const res = await fetch(`/api/custom/models/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('Failed to update custom model')
+      await useSystemStore.getState().fetchCustomModels()
+    } catch (e) {
+      console.error('updateCustomModel error', e)
+    }
+  },
+
+  deleteCustomModel: async (id) => {
+    try {
+      const token = useAuthStore.getState().token
+      const res = await fetch(`/api/custom/models/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token || ''}` },
+      })
+      if (!res.ok) throw new Error('Failed to delete custom model')
+      set((state) => ({ customModels: state.customModels.filter((m: any) => m.id !== id), lastUpdate: new Date() }))
+    } catch (e) {
+      console.error('deleteCustomModel error', e)
     }
   },
 }))

@@ -10,6 +10,7 @@ import cameraRoutes from './routes/cameras';
 import eventRoutes from './routes/events';
 import ruleRoutes from './routes/rules';
 import customRoutes from './routes/custom';
+import settingsRoutes from './routes/settings';
 import actionRoutes from './routes/actions';
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/cameras', cameraRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/custom', customRoutes);
+app.use('/api/settings', settingsRoutes);
 app.use('/api/actions', actionRoutes);
 
 // Error handling middleware

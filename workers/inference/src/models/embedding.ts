@@ -59,6 +59,28 @@ export class EmbeddingModel {
     }
   }
 
+  async classify(imageData: Buffer | Uint8Array): Promise<{ index: number; confidence: number }> {
+    if (!this.session) {
+      throw new Error('Embedding model not initialized');
+    }
+    const tensor = await this.preprocessImage(imageData, 224, 224)
+    const feeds = { input: tensor }
+    const results = await this.session.run(feeds)
+    const output = results.output || results.logits || results['output']
+    if (!output) throw new Error('No classification output found')
+    const logits = Array.from(output.data as Float32Array)
+    const maxLogit = Math.max(...logits)
+    const exps = logits.map(v => Math.exp(v - maxLogit))
+    const sumExp = exps.reduce((a, b) => a + b, 0)
+    const probs = exps.map(v => v / (sumExp || 1))
+    let bestIdx = 0
+    let bestProb = probs[0] || 0
+    for (let i = 1; i < probs.length; i++) {
+      if (probs[i] > bestProb) { bestProb = probs[i]; bestIdx = i }
+    }
+    return { index: bestIdx, confidence: bestProb }
+  }
+
   private async preprocessImage(
     imageData: Buffer | Uint8Array,
     width: number,
