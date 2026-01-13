@@ -23,6 +23,8 @@ interface SystemState {
   frames: Record<string, string>
   logs: Array<{ ts: number; source: 'mqtt' | 'api'; topic?: string; message: string }>
   analyses: Array<{ ts: number; cameraId: string; type: string; severity: 'high' | 'medium' | 'low'; confidence?: number; tags: string[] }>
+  overlays: Record<string, Array<{ label: string; bbox: [number, number, number, number]; status?: string; activity?: string }>>
+  overlayStats: Record<string, { door: { value: string; stability: number }; latch: { value: string; stability: number }; activity: { value: string; stability: number } }>
   
   // Actions
   setCameras: (cameras: Camera[]) => void
@@ -37,6 +39,8 @@ interface SystemState {
   setCameraFrame: (cameraId: string, frame: string) => void
   addLog: (entry: { ts: number; source: 'mqtt' | 'api'; topic?: string; message: string }) => void
   addAnalysis: (entry: { ts: number; cameraId: string; type: string; severity: 'high' | 'medium' | 'low'; confidence?: number; tags: string[] }) => void
+  setOverlays: (cameraId: string, entries: Array<{ label: string; bbox: [number, number, number, number]; status?: string; activity?: string }>) => void
+  updateOverlayStats: (cameraId: string, entries: Array<{ label: string; status?: string; activity?: string }>) => void
   addEvent: (event: Event) => void
   addDetection: (detection: DetectionEvent) => void
   addIncident: (incident: Incident) => void
@@ -73,6 +77,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   frames: {},
   logs: [],
   analyses: [],
+  overlays: {},
+  overlayStats: {},
 
   setCameras: (cameras) => set({ cameras, lastUpdate: new Date() }),
   setEvents: (events) => set({ events, lastUpdate: new Date() }),
@@ -89,6 +95,30 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   })),
   addLog: (entry) => set((state) => ({ logs: [entry, ...state.logs].slice(0, 200), lastUpdate: new Date() })),
   addAnalysis: (entry) => set((state) => ({ analyses: [entry, ...state.analyses].slice(0, 200), lastUpdate: new Date() })),
+  setOverlays: (cameraId, entries) => set((state) => ({ overlays: { ...state.overlays, [cameraId]: entries }, lastUpdate: new Date() })),
+  updateOverlayStats: (cameraId, entries) => set((state) => {
+    const prev = state.overlayStats[cameraId] || { door: { value: 'Unknown', stability: 0 }, latch: { value: 'Unknown', stability: 0 }, activity: { value: 'None', stability: 0 } }
+    const doorEntry = entries.find((e) => (e.label||'').toLowerCase().includes('door'))
+    const latchEntry = entries.find((e) => (e.label||'').toLowerCase().includes('latch'))
+    const activityEntry = entries.find((e) => (e.label||'').toLowerCase().includes('activity'))
+    const upd = { ...prev }
+    if (doorEntry) {
+      const v = doorEntry.status || 'Unknown'
+      upd.door.stability = v === prev.door.value ? Math.min(30, (prev.door.stability || 0) + 1) : 1
+      upd.door.value = v
+    }
+    if (latchEntry) {
+      const v = latchEntry.status || 'Unknown'
+      upd.latch.stability = v === prev.latch.value ? Math.min(30, (prev.latch.stability || 0) + 1) : 1
+      upd.latch.value = v
+    }
+    if (activityEntry) {
+      const v = activityEntry.activity || 'None'
+      upd.activity.stability = v === prev.activity.value ? Math.min(30, (prev.activity.stability || 0) + 1) : 1
+      upd.activity.value = v
+    }
+    return { overlayStats: { ...state.overlayStats, [cameraId]: upd }, lastUpdate: new Date() }
+  }),
   
   addEvent: (event) => set((state) => ({ 
     events: [event, ...state.events].slice(0, 1000), // Keep last 1000 events
@@ -219,6 +249,12 @@ export const useSystemStore = create<SystemState>((set, get) => ({
         }
         get().addLog({ ts: Date.now(), source: 'mqtt', topic: topicNameForFrame(payload.cameraId), message: payload.cameraId })
       });
+
+      mqtt.on('camera:overlays', (payload: { cameraId: string; overlays: any[]; timestamp: number }) => {
+        get().setOverlays(payload.cameraId, payload.overlays as any)
+        get().updateOverlayStats(payload.cameraId, payload.overlays as any)
+        get().addLog({ ts: Date.now(), source: 'mqtt', topic: `cameras/${payload.cameraId}/overlays`, message: `${payload.overlays?.length || 0} overlays` })
+      })
 
       function topicNameForFrame(cameraId: string) {
         return cameraId ? `camera/${cameraId}/frame` : 'security/cameras/frames'

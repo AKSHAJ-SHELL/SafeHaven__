@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSystemStore } from '../stores/system';
-import { CustomModel, ModelType, ModelStatus } from '@security-system/shared';
+// types resolved locally
 import {
   PlusIcon,
   TrashIcon,
@@ -13,19 +13,20 @@ import {
   ArrowUpTrayIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
+import AnnotationEditor from '@/components/AnnotationEditor';
 
 export const CustomModels: React.FC = () => {
   const { customModels, fetchCustomModels, createCustomModel, updateCustomModel, deleteCustomModel } = useSystemStore();
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingModel, setEditingModel] = useState<CustomModel | null>(null);
+  const [editingModel, setEditingModel] = useState<any | null>(null);
   const [trainingModel, setTrainingModel] = useState<string | null>(null);
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    type: 'object_detection' as ModelType,
+    type: 'object_detection' as any,
     classes: [] as string[],
-    status: 'draft' as ModelStatus
+    status: 'draft' as any
   });
   const [classInput, setClassInput] = useState('');
   const [trainingSamples, setTrainingSamples] = useState<File[]>([]);
@@ -33,6 +34,7 @@ export const CustomModels: React.FC = () => {
   const [testResults, setTestResults] = useState<any>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [annotateImageUrl, setAnnotateImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCustomModels();
@@ -58,7 +60,7 @@ export const CustomModels: React.FC = () => {
     });
   };
 
-  const handleEdit = (model: CustomModel) => {
+  const handleEdit = (model: any) => {
     setEditingModel(model);
     setFormData({
       name: model.name,
@@ -180,7 +182,7 @@ export const CustomModels: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: ModelStatus) => {
+  const getStatusColor = (status: any) => {
     switch (status) {
       case 'training': return 'bg-yellow-100 text-yellow-800';
       case 'ready': return 'bg-green-100 text-green-800';
@@ -190,7 +192,7 @@ export const CustomModels: React.FC = () => {
     }
   };
 
-  const getTypeIcon = (type: ModelType) => {
+  const getTypeIcon = (type: any) => {
     switch (type) {
       case 'object_detection': return '🔍';
       case 'gesture_recognition': return '👋';
@@ -255,7 +257,7 @@ export const CustomModels: React.FC = () => {
               <div>
                 <h4 className="text-sm font-medium text-gray-700 mb-2">Classes</h4>
                 <div className="flex flex-wrap gap-1">
-                  {model.classes.map((cls, index) => (
+                  {model.classes.map((cls: any, index: number) => (
                     <span key={index} className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
                       {cls}
                     </span>
@@ -322,6 +324,24 @@ export const CustomModels: React.FC = () => {
                         accept="image/*"
                         className="hidden"
                         onChange={(e) => handleTestImage(e.target.files![0])}
+                      />
+                    </label>
+
+                    <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-sm cursor-pointer flex items-center space-x-1">
+                      <CameraIcon className="h-4 w-4" />
+                      <span>Annotate</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const url = URL.createObjectURL(file);
+                            setAnnotateImageUrl(url);
+                            setEditingModel(model);
+                          }
+                        }}
                       />
                     </label>
 
@@ -426,7 +446,7 @@ export const CustomModels: React.FC = () => {
                     </label>
                     <select
                       value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as ModelType })}
+                      onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="object_detection">Object Detection</option>
@@ -493,7 +513,7 @@ export const CustomModels: React.FC = () => {
                     </label>
                     <select
                       value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value as ModelStatus })}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="draft">Draft</option>
@@ -528,6 +548,9 @@ export const CustomModels: React.FC = () => {
           </div>
         </div>
       )}
+    {annotateImageUrl && editingModel && (
+      <AnnotationEditor imageUrl={annotateImageUrl} modelId={editingModel.id} onClose={() => setAnnotateImageUrl(null)} />
+    )}
     </div>
   );
 };

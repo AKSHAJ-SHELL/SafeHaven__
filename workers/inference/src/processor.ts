@@ -83,7 +83,10 @@ export class InferenceProcessor {
       const zones: any[] = [];
       
       // Run object detection
+      console.log(`[Inference] Running detection for camera ${cameraId} at ${timestamp.toISOString()}`)
       const detections = await this.detector.detect(frameData);
+      console.log(`[Inference] Detections: ${detections.length}`)
+      const overlays: Array<{ label: string; bbox: [number, number, number, number]; status?: string; activity?: string; confidence?: number; explanation?: string }> = []
       
       // Process each detection
       for (const detection of detections) {
@@ -107,6 +110,17 @@ export class InferenceProcessor {
           metadata: {},
         };
 
+        const x1 = bbox.x
+        const y1 = bbox.y
+        const x2 = bbox.x + bbox.width
+        const y2 = bbox.y + bbox.height
+        overlays.push({
+          label: (detection.label || detection.class),
+          bbox: [x1, y1, x2, y2],
+          confidence: detection.confidence,
+          explanation: `Detected ${(detection.label || detection.class)} with ${(Math.round((detection.confidence || 0) * 100))}% confidence`
+        })
+
         // Run custom model classification if applicable
         // Skip custom classification in local testing mode
 
@@ -115,6 +129,7 @@ export class InferenceProcessor {
         detectionEvent.severity = severity;
 
         // Publish detection event
+        console.log(`[Inference] Publish detection event ${detectionEvent.detectionType} conf=${detectionEvent.confidence?.toFixed?.(2)}`)
         this.publisher.publishDetectionEvent(cameraId, detectionEvent);
 
         // Store detection in database
@@ -125,7 +140,30 @@ export class InferenceProcessor {
       if (detections.length > 0) {
         const motionEvent = this.createMotionEvent(cameraId, detections, timestamp);
         if (motionEvent) {
-          this.publisher.publishMotionEvent(cameraId, motionEvent);
+        console.log(`[Inference] Publish motion event count=${motionEvent?.metadata?.detectionCount}`)
+        this.publisher.publishMotionEvent(cameraId, motionEvent);
+        }
+        // Simple heuristics for door state and activity placeholders
+        const doorStatus = 'unknown'
+        const latchStatus = 'unknown'
+        // If person detected, mark activity
+        const hasPerson = detections.some(d => (d.label || d.class) === 'person')
+        if (hasPerson) {
+          overlays.push({ label: 'Activity', bbox: [0,0,0,0], activity: 'Present', explanation: 'Person detected → activity present' })
+        }
+        // Publish overlays
+        console.log(`[Inference] Publish overlays count=${overlays.length}`)
+        try {
+          const topic = `cameras/${cameraId}/overlays`
+          const payload = { timestamp: timestamp.toISOString(), detections: overlays }
+          const client = (this.publisher as any).client
+          if (client && typeof client.publish === 'function') {
+            client.publish(topic, JSON.stringify(payload), { qos: 1 })
+          } else {
+            console.warn('[Inference] MQTT client unavailable; overlay not published')
+          }
+        } catch (e) {
+          console.error('[Inference] Overlay publish error', e)
         }
       } else {
         // Publish a lightweight analysis when no detections
@@ -144,7 +182,22 @@ export class InferenceProcessor {
             severity: mean < 40 ? 'info' : 'info',
             tags: [brightnessTag],
           };
+          console.log('[Inference] Publish frame_analysis')
           this.publisher.publishDetectionEvent(cameraId, analysisEvent);
+          // Publish overlays with frame analysis tag
+          console.log('[Inference] Publish overlays (frame status)')
+          try {
+            const topic = `cameras/${cameraId}/overlays`
+            const payload = { timestamp: timestamp.toISOString(), detections: [{ label: 'Frame', bbox: [0,0,0,0], status: brightnessTag, explanation: `Frame brightness status: ${brightnessTag}` }] }
+            const client = (this.publisher as any).client
+            if (client && typeof client.publish === 'function') {
+              client.publish(topic, JSON.stringify(payload), { qos: 1 })
+            } else {
+              console.warn('[Inference] MQTT client unavailable; overlay not published')
+            }
+          } catch (e) {
+            console.error('[Inference] Overlay publish error', e)
+          }
         } catch (e) {
           // ignore analysis failure
         }

@@ -137,6 +137,14 @@ export class MQTTService extends EventEmitter {
         console.log('Subscribed to camera/+/frame')
       }
     })
+
+    this.client?.subscribe('cameras/+/overlays', { qos: 1 }, (err) => {
+      if (err) {
+        console.error('Failed to subscribe to cameras/+/overlays:', err)
+      } else {
+        console.log('Subscribed to cameras/+/overlays')
+      }
+    })
   }
 
   private handleMessage(topic: string, message: Buffer): void {
@@ -191,6 +199,12 @@ export class MQTTService extends EventEmitter {
         const cameraId = m[1]
         const frameBase64 = (payload && payload.frame) ? `data:image/jpeg;base64,${payload.frame}` : undefined
         this.emit('camera:frame', { cameraId, frame: frameBase64, timestamp: payload?.timestamp || Date.now() })
+      }
+
+      const o = topic.match(/^cameras\/([^/]+)\/overlays$/)
+      if (o) {
+        const cameraId = o[1]
+        this.emit('camera:overlays', { cameraId, overlays: payload?.detections || [], timestamp: payload?.timestamp || Date.now() })
       }
     } catch (error) {
       console.error('Failed to handle MQTT message:', error);

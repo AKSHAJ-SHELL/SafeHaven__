@@ -212,6 +212,11 @@ export class MQTTPublisher {
     if (!this.client) return;
     this.client.publish('security/cameras/status', JSON.stringify({ recordingId, state: 'stopped' }), { qos: 1 });
   }
+
+  publishOverlay(cameraId: string, payload: Record<string, any>): void {
+    if (!this.client) return;
+    this.client.publish(`cameras/${cameraId}/overlays`, JSON.stringify(payload), { qos: 1 });
+  }
 }
 
 export class MQTTSubscriber {

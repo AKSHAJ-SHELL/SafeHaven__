@@ -101,6 +101,7 @@ class InferenceWorker {
         this.handleFrameMessage(topic, message);
       });
       console.log('Subscribed to topic: camera/+/frame')
+      await this.publisher.publishStatus('inference-worker', 'online')
       
       // Subscribe to configuration updates
       await this.subscriber.subscribe('config/+/update', (topic: string, message: Buffer) => {

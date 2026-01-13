@@ -7,6 +7,7 @@ import { getDatabase } from '../database';
 import { authenticate, AuthRequest } from '../auth';
 import { Model, ModelClass, TrainingSample, CustomModelConfig } from '@security-system/shared';
 import { v4 as uuidv4 } from 'uuid';
+import os from 'os';
 
 const router = express.Router();
 
@@ -364,5 +365,28 @@ router.post('/models/:id/deploy', authenticate, async (req: AuthRequest, res) =>
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
+
+// Save annotations (COCO-like JSON)
+router.post('/models/:id/annotations', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const db = getDatabase()
+    const model = await db.get<Model>('SELECT * FROM models WHERE id = ?', [id])
+    if (!model) return res.status(404).json({ error: 'Model not found.' })
+    const dir = path.join('data', 'annotations')
+    await fs.mkdir(dir, { recursive: true })
+    const file = path.join(dir, `${id}.json`)
+    const body = req.body || {}
+    const existing = await fs.readFile(file).catch(() => Buffer.from('[]'))
+    let arr: any[] = []
+    try { arr = JSON.parse(existing.toString()) } catch { arr = [] }
+    arr.push({ ...body, saved_at: new Date().toISOString(), host: os.hostname() })
+    await fs.writeFile(file, JSON.stringify(arr, null, 2))
+    res.json({ saved: true, count: arr.length })
+  } catch (error) {
+    console.error('Save annotations error:', error)
+    res.status(500).json({ error: 'Internal server error.' })
+  }
+})
 
 export default router;

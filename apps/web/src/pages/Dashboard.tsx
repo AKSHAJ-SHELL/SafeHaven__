@@ -13,11 +13,13 @@ import {
 } from '@heroicons/react/24/outline';
 import WebcamPreview from '@/components/WebcamPreview';
 import CommAnalysisPanel from '@/components/CommAnalysisPanel';
+import { useRef } from 'react';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { cameras, events, systemStatus, fetchCameras, fetchEvents, fetchSystemStatus, frames } = useSystemStore() as any;
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     fetchCameras();
@@ -49,6 +51,43 @@ export const Dashboard: React.FC = () => {
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
+
+  useEffect(() => {
+    if (!selectedCamera || !overlayCanvasRef.current) return
+    const canvas = overlayCanvasRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const imgEl = canvas.previousElementSibling as HTMLImageElement
+    if (!imgEl) return
+    const draw = () => {
+      const overlays = (useSystemStore.getState() as any).overlays[selectedCamera] || []
+      canvas.width = imgEl.clientWidth
+      canvas.height = imgEl.clientHeight
+      ctx.clearRect(0,0,canvas.width,canvas.height)
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'
+      ctx.lineWidth = 2
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'
+      overlays.forEach((o: any) => {
+        const [x1,y1,x2,y2] = o.bbox || [0,0,0,0]
+        const w = Math.max(0, x2 - x1)
+        const h = Math.max(0, y2 - y1)
+        ctx.strokeRect(x1, y1, w, h)
+        const conf = typeof o.confidence === 'number' ? ` ${Math.round(o.confidence * 100)}%` : ''
+        const main = `${o.label}${conf}`
+        const extra = o.explanation ? o.explanation : (o.status ? `Status: ${o.status}` : o.activity ? `Activity: ${o.activity}` : '')
+        const lines = extra ? [main, extra] : [main]
+        const textW = Math.max(...lines.map(l => ctx.measureText(l).width)) + 8
+        const boxH = 16 * lines.length
+        const ty = Math.max(0, y1 - boxH)
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'
+        ctx.fillRect(x1, ty, textW, boxH)
+        ctx.fillStyle = '#00FF00'
+        ctx.font = '12px sans-serif'
+        lines.forEach((ln, i) => ctx.fillText(ln, x1 + 4, ty + 12 + i * 16))
+      })
+    }
+    draw()
+  }, [selectedCamera, frames, overlayCanvasRef])
 
   return (
     <div className="p-6 space-y-6">
@@ -231,7 +270,31 @@ export const Dashboard: React.FC = () => {
             </div>
             <div className="p-6">
               {frames[selectedCamera] ? (
-                <img src={frames[selectedCamera]} className="w-full rounded aspect-video object-cover" />
+                <div className="relative">
+                  <img src={frames[selectedCamera]} className="w-full rounded aspect-video object-cover" />
+                  <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap gap-2">
+                    {(() => {
+                      const overlays = (useSystemStore.getState() as any).overlays[selectedCamera] || []
+                      const door = overlays.find((o: any) => (o.label||'').toLowerCase().includes('door'))
+                      const latch = overlays.find((o: any) => (o.label||'').toLowerCase().includes('latch'))
+                      const activity = overlays.find((o: any) => (o.label||'').toLowerCase().includes('activity'))
+                      const stats = (useSystemStore.getState() as any).overlayStats[selectedCamera] || { door: { value: 'Unknown', stability: 0 }, latch: { value: 'Unknown', stability: 0 }, activity: { value: 'None', stability: 0 } }
+                      const pill = (title: string, value: string, stability: number) => (
+                        <span className="px-2 py-1 bg-black bg-opacity-50 text-white text-xs rounded">
+                          {title}: {value} {stability ? `(stable ${stability}/30)` : ''}
+                        </span>
+                      )
+                      return (
+                        <>
+                          {pill('Door', door?.status || stats.door.value, stats.door.stability)}
+                          {pill('Latch', latch?.status || stats.latch.value, stats.latch.stability)}
+                          {pill('Activity', activity?.activity || stats.activity.value, stats.activity.stability)}
+                        </>
+                      )
+                    })()}
+                  </div>
+                  <canvas ref={overlayCanvasRef} className="absolute inset-0 w-full h-full pointer-events-auto" />
+                </div>
               ) : (
                 <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
                   <VideoCameraIcon className="h-24 w-24 text-gray-400" />
